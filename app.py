@@ -1,6 +1,21 @@
+import sqlite3
+
 from flask import Flask, request, render_template
 
 app = Flask(__name__)
+
+class Database:
+    def __init__(self, db_name):
+        self.db_name = db_name
+
+    def __enter__(self):
+        self.conn = sqlite3.connect(self.db_name)
+        self.cursor = self.conn.cursor()
+        return self.cursor
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.conn.commit()
+        self.conn.close()
 
 @app.route("/user", methods=["GET"])
 def user_handler():
@@ -15,19 +30,27 @@ def get_login():
     if request.method == "GET":
         return render_template("login.html")
     else:
-        username = request.form["uname"]
+        email = request.form["email"]
         password = request.form["psw"]
-        return f"POST data: {username} & {password}"
+        with Database("financial_tracker.db") as cursor:
+            result = cursor.execute(f"SELECT * FROM user where email = '{email}' and password = '{password}'")
+            data = result.fetchone()
+        if data:
+            return f"registered user logged in"
+        return f"user does not exist. Register first"
 
 @app.route("/register", methods=["GET", "POST"])
 def get_register():
     if request.method == "GET":
         return render_template("register.html")
     else:
-        username = request.form["login"]
+        name = request.form["name"]
+        surname = request.form["surname"]
         password = request.form["psw"]
         email = request.form["email"]
-        return f"POST data: {username} & {password} & {email}"
+        with Database('financial_tracker.db') as cursor:
+            cursor.execute(f"INSERT INTO user (name, surname, password, email) VALUES ('{name}', '{surname}', '{password}', '{email}')")
+        return f"user registered"
 
 @app.route("/category", methods=["GET", "POST"])
 def get_all_category():
