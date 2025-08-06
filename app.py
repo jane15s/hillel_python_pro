@@ -1,8 +1,11 @@
 import sqlite3
 
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, session, redirect
 
 app = Flask(__name__)
+app.secret_key = "hgdrY&$(ijdf_jf"
+INCOME = 1
+EXPENSE = 2
 
 class Database:
     def __init__(self, db_name):
@@ -33,11 +36,12 @@ def get_login():
         email = request.form["email"]
         password = request.form["psw"]
         with Database("financial_tracker.db") as cursor:
-            result = cursor.execute(f"SELECT * FROM user where email = '{email}' and password = '{password}'")
+            result = cursor.execute(f"SELECT id FROM user where email = '{email}' and password = '{password}'")
             data = result.fetchone()
         if data:
-            return f"registered user logged in"
-        return f"user does not exist. Register first"
+            session["user_id"] = data[0]
+            return redirect("/income")
+        return redirect("/register")
 
 @app.route("/register", methods=["GET", "POST"])
 def get_register():
@@ -50,7 +54,7 @@ def get_register():
         email = request.form["email"]
         with Database('financial_tracker.db') as cursor:
             cursor.execute(f"INSERT INTO user (name, surname, password, email) VALUES ('{name}', '{surname}', '{password}', '{email}')")
-        return f"user registered"
+        return redirect("/income")
 
 @app.route("/category", methods=["GET", "POST"])
 def get_all_category():
@@ -73,10 +77,24 @@ def delete_category(category_id):
 
 @app.route("/income", methods=["GET", "POST"])
 def get_all_income():
-    if request.method == "GET":
-        return "<h1>stub for income</h1>"
+    if "user_id" in session:
+        if request.method == "GET":
+            with Database("financial_tracker.db") as cursor:
+                data = cursor.execute(f"SELECT * FROM 'transaction' where owner = {session["user_id"]} and type = {INCOME}")
+                result = data.fetchall()
+            return render_template("dashboard.html", income_transactions=result)
+        else:
+            with Database("financial_tracker.db") as cursor:
+                transaction_description = request.form["description"]
+                transaction_category = request.form["category"]
+                transaction_amount = request.form["amount"]
+                transaction_datetime = request.form["datetime"]
+                transaction_owner = session["user_id"]
+                transaction_type = INCOME
+                cursor.execute(f"INSERT INTO 'transaction' (description, category, amount, datetime, owner, type) VALUES ('{transaction_description}', '{transaction_category}', '{transaction_amount}', '{transaction_datetime}', '{transaction_owner}', '{transaction_type}')")
+            return redirect("/income")
     else:
-        return "POST data"
+        return redirect("/login")
 
 @app.route("/income/<income_id>", methods=["GET"])
 def get_income(income_id):
@@ -91,24 +109,40 @@ def delete_income(income_id):
     return f"delete income - {income_id}"
 
 
-@app.route("/spend", methods=["GET", "POST"])
-def get_all_spend():
-    if request.method == "GET":
-        return "<h1>stub for spend</h1>"
+@app.route("/expense", methods=["GET", "POST"])
+def get_all_expenses():
+    if "user_id" in session:
+        if request.method == "GET":
+            with Database("financial_tracker.db") as cursor:
+                data = cursor.execute(
+                    f"SELECT * FROM 'transaction' where owner = {session["user_id"]} and type = {EXPENSE}")
+                result = data.fetchall()
+            return render_template("dashboard.html", expense_transactions=result)
+        else:
+            with Database("financial_tracker.db") as cursor:
+                transaction_description = request.form["description"]
+                transaction_category = request.form["category"]
+                transaction_amount = request.form["amount"]
+                transaction_datetime = request.form["datetime"]
+                transaction_owner = session["user_id"]
+                transaction_type = EXPENSE
+                cursor.execute(
+                    f"INSERT INTO 'transaction' (description, category, amount, datetime, owner, type) VALUES ('{transaction_description}', '{transaction_category}', '{transaction_amount}', '{transaction_datetime}', '{transaction_owner}', '{transaction_type}')")
+            return redirect("/expense")
     else:
-        return "POST data"
+        return redirect("/login")
 
-@app.route("/spend/<spend_id>", methods=["GET"])
-def get_spend(spend_id):
-    return "<h1>stub for spend_id</h1>"
+@app.route("/expense/<expense_id>", methods=["GET"])
+def get_expense(expense_id):
+    return "<h1>stub for expense_id</h1>"
 
-@app.route("/spend/<spend_id>/edit", methods=["GET"])
-def edit_spend(spend_id):
-    return f"edit spend - {spend_id}"
+@app.route("/expense/<expense_id>/edit", methods=["GET"])
+def edit_expense(expense_id):
+    return f"edit expense - {expense_id}"
 
-@app.route("/spend/<spend_id>/delete", methods=["GET"])
-def delete_spend(spend_id):
-    return f"delete spend - {spend_id}"
+@app.route("/expense/<expense_id>/delete", methods=["GET"])
+def delete_expense(expense_id):
+    return f"delete expense - {expense_id}"
 
 
 
