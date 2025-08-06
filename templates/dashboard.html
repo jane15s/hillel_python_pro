@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard</title>
+</head>
+<body>
+  <h1>Dashboard</h1>
+
+  <div class="container">
+    <h2>Overview</h2>
+    {% if income_transactions is defined %}
+      <p><strong>Income Transactions:</strong> {{ income_transactions }}</p>
+    {% endif %}
+    {% if expense_transactions is defined %}
+      <p><strong>Expense Transactions:</strong> {{ expense_transactions }}</p>
+    {% endif %}
+    <hr>
+  </div>
+
+  {% if request.path == '/income' %}
+    <h2>Add Income</h2>
+    <form action="/income" method="post">
+      <div class="container">
+        <input type="hidden" name="type" value="income">
+
+        <label>Description:</label><br>
+        <input type="text" name="description" required><br><br>
+
+        <label for="category">Category</label>
+        <select name="category" id="category" required>
+        <option value="" disabled selected>Select a category</option>
+        <option value="salary">Salary</option>
+        <option value="freelance">Freelance</option>
+        <option value="investment">Investment</option>
+        <option value="Custom_category">+ Add your category</option>
+        </select><br><br>
+
+        <label>Amount:</label><br>
+        <input type="number" step="0.01" name="amount" required><br><br>
+
+        <label>Date & Time:</label><br>
+        <input type="datetime-local" name="datetime" required><br><br>
+
+        <button type="submit">Add Income</button>
+      </div>
+    </form>
+
+  {% elif request.path == '/expense' %}
+    <h2>Add Expense</h2>
+    <form action="/expense" method="post">
+      <div class="container">
+        <input type="hidden" name="type" value="expense">
+
+        <label>Description:</label><br>
+        <input type="text" name="description" required><br><br>
+
+       <label for="category">Category</label>
+        <select name="category" id="category" required>
+        <option value="" disabled selected>Select a category</option>
+        <option value="groceries">Groceries</option>
+        <option value="transport">Transport</option>
+        <option value="rent">Rent</option>
+        <option value="healthcare">Healthcare</option>
+        <option value="education">Education</option>
+        <option value="shopping">Shopping</option>
+        <option value="Custom_category">+ Add your category</option>
+        </select><br><br>
+
+        <label>Amount:</label><br>
+        <input type="number" step="0.01" name="amount" required><br><br>
+
+        <label>Date & Time:</label><br>
+        <input type="datetime-local" name="datetime" required><br><br>
+
+        <button type="submit">Add Expense</button>
+      </div>
+    </form>
+  {% endif %}
+</body>
+</html>
