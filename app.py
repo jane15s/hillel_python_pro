@@ -1,64 +1,30 @@
 import sqlite3
 
 from flask import Flask, request, render_template, session, redirect
+import models
+from datetime import datetime
+from sqlalchemy import select, desc, or_
+from database import db_session, init_db
 
 app = Flask(__name__)
 app.secret_key = "hgdrY&$(ijdf_jf"
 INCOME = 1
 EXPENSE = 2
 
-class Database:
-    def __init__(self, db_name):
-        self.db_name = db_name
-
-    def __enter__(self):
-        self.conn = sqlite3.connect(self.db_name)
-        self.conn.row_factory = sqlite3.Row
-        self.cursor = self.conn.cursor()
-        return self.cursor
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.conn.commit()
-        self.conn.close()
-
-class DBwrapper:
-    def insert(self, table, data):
-        with Database("financial_tracker.db") as cursor:
-            columns = ', '.join([f'"{col}"' for col in data.keys()])
-            placeholders = ', '.join(['?'] * len(data))
-            values = list(data.values())
-            query = f'INSERT INTO "{table}" ({columns}) VALUES ({placeholders})'
-            cursor.execute(query, values)
-
-    def select(self, table, params=None):
-        with Database("financial_tracker.db") as cursor:
-            query = f'SELECT * FROM "{table}"'
-            values = []
-            if params:
-                result_params = []
-                for key, value in params.items():
-                    if isinstance(value, list) or isinstance(value, tuple):
-                        placeholders = ', '.join(['?'] * len(value))
-                        result_params.append(f'"{key}" IN ({placeholders})')
-                        values.extend(value)
-                    else:
-                        result_params.append(f'"{key}" = ?')
-                        values.append(value)
-                query += " WHERE " + " AND ".join(result_params)
-            cursor.execute(query, values)
-            return cursor.fetchall()
-
 @app.route("/user", methods=["GET"])
 def user_handler():
     if "user_id" in session:
-        db = DBwrapper()
-        data = db.select("transactions", {"owner": session["user_id"]})
-        transactions = [dict(row) for row in data]
-        transactions.sort(key=lambda x: x["datetime"], reverse=True)
+        stmt = select(models.Transactions).filter_by(owner=session["user_id"]).order_by(desc(models.Transactions.datetime))
+        transactions = db_session.execute(stmt).scalars().all()
+        stmt_cat = select(models.Category)
+        categories = db_session.execute(stmt_cat).scalars().all()
+        cat_map = {c.id: c.name for c in categories}
+        for t in transactions:
+            t.category_name = cat_map.get(t.category, "Unknown")
         return render_template("dashboard.html", transactions=transactions)
     return redirect("/login")
 
-@app.route("/user/delete", methods=["GET"]) # тут й у відповідному випадку далі - GET для можиливості перевірки. з POST на цьому етапі буде "Method NOT Allowed"
+@app.route("/user/delete", methods=["GET"])
 def delete_user():
     return "delete user"
 
@@ -69,10 +35,11 @@ def get_login():
     else:
         email = request.form["email"]
         password = request.form["psw"]
-        db = DBwrapper()
-        data = db.select("user", {"email": email, "password": password})
+        init_db()
+        stmt = select(models.User).filter_by(email=email, password=password)
+        data = db_session.execute(stmt).scalars().first()
         if data:
-            session["user_id"] = data[0]["id"]
+            session["user_id"] = data.id
             return redirect("/user")
         return redirect("/register")
 
@@ -85,21 +52,28 @@ def get_register():
         surname = request.form["surname"]
         password = request.form["psw"]
         email = request.form["email"]
-        db = DBwrapper()
-        db.insert("user", {"name": name, "surname": surname, "password": password, "email": email})
+        init_db()
+        new_user = models.User(name=name, surname=surname, password=password, email=email)
+        db_session.add(new_user)
+        db_session.commit()
+        session["user_id"] = new_user.id
+        session["user_name"] = new_user.name
         return redirect("/user")
 
 @app.route("/category", methods=["GET", "POST"])
 def get_all_category():
     if "user_id" in session:
-        db = DBwrapper()
+        init_db()
         if request.method == "GET":
-            data = db.select("category", {"owner": [session["user_id"], 1]})
+            stmt = select(models.Category).filter(or_(models.Category.owner == session["user_id"],models.Category.owner == 1))
+            data = db_session.execute(stmt).scalars().all()
             return render_template("user_categories.html", categories=data)
         else:
             category_name = request.form["category_name"]
             category_owner = session["user_id"]
-            db.insert("category", {"name": category_name, "owner": category_owner})
+            new_category = models.Category(name=category_name, owner=category_owner)
+            db_session.add(new_category)
+            db_session.commit()
             return redirect("/category")
     return redirect("/login")
 
@@ -118,19 +92,36 @@ def delete_category(category_id):
 @app.route("/income", methods=["GET", "POST"])
 def get_all_income():
     if "user_id" in session:
-        db = DBwrapper()
+        init_db()
         if request.method == "GET":
-            data = db.select("transactions", {"owner": session["user_id"], "type": INCOME})
-            income_transactions = [dict(row) for row in data]
-            return render_template("dashboard_income.html", income_transactions=income_transactions)
+            stmt = select(models.Transactions, models.Category.name.label("category_name")).join(models.Category, models.Transactions.category == models.Category.id).filter(models.Transactions.owner == session["user_id"],models.Transactions.type == INCOME, or_(models.Category.owner == 1, models.Category.owner == session["user_id"]))
+            result = db_session.execute(stmt).all()
+            stmt_cat = select(models.Category).filter(or_(models.Category.owner == 1, models.Category.owner == session["user_id"]))
+            categories = db_session.execute(stmt_cat).scalars().all()
+            income_transactions = []
+            for transaction, category_name in result:
+                income_transactions.append({
+                    "id": transaction.id,
+                    "description": transaction.description,
+                    "category_name": category_name,
+                    "amount": transaction.amount,
+                    "datetime": transaction.datetime
+                })
+            return render_template("dashboard_income.html", income_transactions=income_transactions, categories=categories)
         else:
             transaction_description = request.form["description"]
-            transaction_category = request.form["category"]
+            transaction_category = int(request.form["category"])
             transaction_amount = float(request.form["amount"])
-            transaction_datetime = request.form["datetime"]
+            # transaction_datetime = datetime.strptime(request.form["datetime"], "%Y-%m-%dT%H:%M")
+            raw_datetime = request.form["datetime"]
+            transaction_datetime = datetime.strptime(raw_datetime, "%Y-%m-%dT%H:%M")
             transaction_owner = session["user_id"]
             transaction_type = INCOME
-            db.insert("transactions",{"description": transaction_description, "category": transaction_category, "amount": transaction_amount, "datetime": transaction_datetime, "owner": transaction_owner, "type": transaction_type})
+            new_transaction = models.Transactions(description=transaction_description, category=transaction_category,
+                                                 amount=transaction_amount, datetime=transaction_datetime,
+                                                 owner=transaction_owner, type=transaction_type)
+            db_session.add(new_transaction)
+            db_session.commit()
             return redirect("/income")
     else:
         return redirect("/login")
@@ -151,19 +142,41 @@ def delete_income(income_id):
 @app.route("/expense", methods=["GET", "POST"])
 def get_all_expenses():
     if "user_id" in session:
-        db = DBwrapper()
+        init_db()
         if request.method == "GET":
-            data = db.select("transactions", {"owner": session["user_id"], "type": EXPENSE})
-            expense_transactions = [dict(row) for row in data]
-            return render_template("dashboard_expense.html", expense_transactions=expense_transactions)
+            stmt = select(models.Transactions, models.Category.name.label("category_name")).join(models.Category,
+                                                                                                 models.Transactions.category == models.Category.id).filter(
+                models.Transactions.owner == session["user_id"], models.Transactions.type == EXPENSE,
+                or_(models.Category.owner == 1, models.Category.owner == session["user_id"]))
+            result = db_session.execute(stmt).all()
+            stmt_cat = select(models.Category).filter(
+                or_(models.Category.owner == 1, models.Category.owner == session["user_id"]))
+            categories = db_session.execute(stmt_cat).scalars().all()
+            expense_transactions = []
+            for transaction, category_name in result:
+                expense_transactions.append({
+                    "id": transaction.id,
+                    "description": transaction.description,
+                    "category_name": category_name,
+                    "amount": transaction.amount,
+                    "datetime": transaction.datetime
+                })
+            return render_template("dashboard_expense.html", expense_transactions=expense_transactions,
+                                   categories=categories)
         else:
             transaction_description = request.form["description"]
-            transaction_category = request.form["category"]
+            transaction_category = int(request.form["category"])
             transaction_amount = float(request.form["amount"])
-            transaction_datetime = request.form["datetime"]
+            # transaction_datetime = datetime.strptime(request.form["datetime"], "%Y-%m-%dT%H:%M")
+            raw_datetime = request.form["datetime"]
+            transaction_datetime = datetime.strptime(raw_datetime, "%Y-%m-%dT%H:%M")
             transaction_owner = session["user_id"]
             transaction_type = EXPENSE
-            db.insert("transactions", {"description": transaction_description, "category": transaction_category, "amount": transaction_amount, "datetime": transaction_datetime, "owner": transaction_owner, "type": transaction_type})
+            new_transaction = models.Transactions(description=transaction_description, category=transaction_category,
+                                                  amount=transaction_amount, datetime=transaction_datetime,
+                                                  owner=transaction_owner, type=transaction_type)
+            db_session.add(new_transaction)
+            db_session.commit()
             return redirect("/expense")
     else:
         return redirect("/login")
