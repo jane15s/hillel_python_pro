@@ -10,6 +10,8 @@ class User(Base):
     surname = Column(String(50))
     password = Column(String(50))
     email = Column(String(120), unique=True)
+    birth_date = Column(DateTime)
+    gender = Column(String(10))
 
     def __repr__(self):
         return f'<User {self.name!r}>'
