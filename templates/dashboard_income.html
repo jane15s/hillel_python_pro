@@ -7,14 +7,14 @@
 <body>
     <h1>Your Income</h1>
 
-    <table border="1">
+<table border="1">
     <tr>
         <th>ID</th>
         <th>Description</th>
         <th>Category</th>
         <th>Amount</th>
         <th>Date/Time</th>
-    </tr>
+        <th>Actions</th> </tr>
     {% for transaction in income_transactions %}
     <tr>
         <td>{{ transaction.id }}</td>
@@ -22,6 +22,9 @@
         <td>{{ transaction.category_name }}</td>
         <td>{{ transaction.amount }}</td>
         <td>{{ transaction.datetime.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td><a href="/income/{{ transaction.id }}">Edit</a> |
+            <a href="/income/{{ transaction.id }}/delete" onclick="return confirm('Are you sure?')">Delete</a>
+        </td>
     </tr>
     {% endfor %}
 </table>
@@ -42,6 +45,7 @@
 
     <input type="number" name="amount" step="0.01" placeholder="Amount" required>
     <input type="datetime-local" name="datetime" required>
+    <button type="submit">Add Income</button>
     <button type="submit">Add Income</button>
 </form>
 

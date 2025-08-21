@@ -13,8 +13,8 @@
             <li>
                 {{ category['name'] }}
                 {% if category['owner'] != 1 %}
-                    <a href="/category/{{ category['id'] }}/edit">Edit</a>
-                    <a href="/category/{{ category['id'] }}/delete">Delete</a>
+                    <a href="/category/{{ category.id }}">Edit</a>
+                    <a href="/category/{{ category.id }}/delete" onclick="return confirm('Are you sure?')">Delete</a>
                 {% else %}
                     (system)
                 {% endif %}
