@@ -41,6 +41,7 @@ def user_handler():
                 "datetime": t.datetime.isoformat() if t.datetime else None,
                 "type": t.type,
             }
+            for t in transactions
         ]
         return render_template("dashboard.html", transactions=transactions, transactions_json=transactions_json, income_sum=income_sum, expense_sum=expense_sum, income_percent=income_percent, expense_percent=expense_percent, balance=balance)
     return redirect("/login")
