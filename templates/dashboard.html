@@ -3,9 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <title>All Transactions</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        #chart-container {
+            width: 400px;
+            height: 400px;
+            margin: 20px auto;
+        }
+        .summary {
+            width: 400px;
+            margin: 10px auto;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            text-align: center;
+            background: #f9f9f9;
+        }
+    </style>
 </head>
 <body>
     <h1>All Transactions</h1>
+    <form action="/user" method="get">
+        <input type="date" name="date_from" id="date_from" value="{{ date_from }}">
+        <input type="date" name="date_to" id="date_to" value="{{ date_to }}">
+        <input type="submit" name="submit" value="Search">
+    </form>
 
     <table border="1">
         <tr>
@@ -20,18 +42,53 @@
         <tr>
             <td>{{ t.id }}</td>
             <td>{{ t.description }}</td>
-            <td>{{ t.category }}</td>
+            <td>{{ t.category_name }}</td>
             <td>{{ t.amount }}</td>
             <td>{{ t.datetime }}</td>
-            <td>{{ t.type }}</td>
+            <td>
+                {% if t.type == 1 %}
+                Income
+                {% else %}
+                Expense
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </table>
 
-<br>
-    <a href="/income" style="">Income Transactions</a>
-<br>
-    <a href="/income" style="">Expense Transactions</a>
+        <br>
+    <a href="/income">Income Transactions</a><br>
+    <a href="/expense">Expense Transactions</a><br>
+    <a href="/category">View all categories</a>
+
+    <div id="chart-container">
+        <canvas id="transactionsChart"></canvas>
+    </div>
+
+    <div class="summary">
+        <p><b>Income:</b> {{ income_sum }} ({{ income_percent }}%)</p>
+        <p><b>Expense:</b> {{ expense_sum }} ({{ expense_percent }}%)</p>
+        <br>
+        <p><b>Balance:</b> {{ balance }}</p>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('transactionsChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: ['Income', 'Expense'],
+                datasets: [{
+                    data: [{{ income_sum }}, {{ expense_sum }}],
+                    backgroundColor: ['#8BC34A', '#FF7043']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+    </script>
 
 </body>
 </html>

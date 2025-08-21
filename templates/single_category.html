@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Category</title>
+</head>
+<body>
+<h1>Edit Category</h1>
+
+<form action="/category/{{ one_category.id }}/edit" method="post">
+    <input type="text" name="category_name" value="{{ one_category.name }}">
+    <button type="submit">Update category</button>
+</form>
+</body>
+</html>
