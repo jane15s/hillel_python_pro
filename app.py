@@ -14,14 +14,35 @@ EXPENSE = 2
 @app.route("/user", methods=["GET"])
 def user_handler():
     if "user_id" in session:
-        stmt = select(models.Transactions).filter_by(owner=session["user_id"]).order_by(desc(models.Transactions.datetime))
+        stmt = select(models.Transactions).filter_by(owner=session["user_id"])
+        if "date_from" in request.args and "date_to" in request.args:
+            date_from = datetime.strptime(request.args["date_from"], "%Y-%m-%d")
+            date_to = datetime.strptime(request.args["date_to"], "%Y-%m-%d")
+            stmt = stmt.filter(models.Transactions.datetime.between(date_from, date_to))
+        stmt = stmt.order_by(desc(models.Transactions.datetime))
         transactions = db_session.execute(stmt).scalars().all()
-        stmt_cat = select(models.Category)
+        stmt_cat = select(models.Category).filter(or_(models.Category.owner == session["user_id"],models.Category.owner == 1))
         categories = db_session.execute(stmt_cat).scalars().all()
         cat_map = {c.id: c.name for c in categories}
         for t in transactions:
             t.category_name = cat_map.get(t.category, "Unknown")
-        return render_template("dashboard.html", transactions=transactions)
+        income_sum = round(sum(t.amount for t in transactions if t.type == 1), 2)
+        expense_sum = round(sum(t.amount for t in transactions if t.type == 2), 2)
+        balance = income_sum - expense_sum
+        total = income_sum + expense_sum
+        income_percent = round((income_sum / total * 100), 2) if total > 0 else 0
+        expense_percent = round((expense_sum / total * 100), 2) if total > 0 else 0
+        transactions_json = [
+            {
+                "id": t.id,
+                "description": t.description,
+                "category": t.category_name,
+                "amount": float(t.amount),
+                "datetime": t.datetime.isoformat() if t.datetime else None,
+                "type": t.type,
+            }
+        ]
+        return render_template("dashboard.html", transactions=transactions, transactions_json=transactions_json, income_sum=income_sum, expense_sum=expense_sum, income_percent=income_percent, expense_percent=expense_percent, balance=balance)
     return redirect("/login")
 
 @app.route("/user/delete", methods=["GET"])
@@ -43,6 +64,11 @@ def get_login():
             return redirect("/user")
         return redirect("/register")
 
+@app.route("/logout", methods=["GET"])
+def log_out():
+    session.clear()
+    return redirect("/login")
+
 @app.route("/register", methods=["GET", "POST"])
 def get_register():
     if request.method == "GET":
@@ -52,8 +78,12 @@ def get_register():
         surname = request.form["surname"]
         password = request.form["psw"]
         email = request.form["email"]
+        birth_date_str = request.form["birthdate"]
+        birth_date = datetime.strptime(birth_date_str, "%Y-%m-%d").date()
+        gender = request.form["gender"]
+
         init_db()
-        new_user = models.User(name=name, surname=surname, password=password, email=email)
+        new_user = models.User(name=name, surname=surname, password=password, email=email, birth_date=birth_date, gender=gender)
         db_session.add(new_user)
         db_session.commit()
         session["user_id"] = new_user.id
@@ -79,15 +109,38 @@ def get_all_category():
 
 @app.route("/category/<category_id>", methods=["GET"])
 def get_category(category_id):
-    return "<h1>stub for category_id</h1>"
+    if "user_id" in session:
+        init_db()
+        stmt = select(models.Category).filter_by(owner=session["user_id"], id=category_id)
+        data = db_session.execute(stmt).scalars().first()
+        return render_template("single_category.html", one_category=data)
+    return redirect("/login")
 
-@app.route("/category/<category_id>/edit", methods=["GET"])
+@app.route("/category/<category_id>/edit", methods=["POST"])
 def edit_category(category_id):
-    return f"edit category - {category_id}"
+    if "user_id" in session:
+        init_db()
+        category_name = request.form["category_name"]
+        stmt = select(models.Category).filter_by(owner=session["user_id"], id=category_id)
+        data = db_session.execute(stmt).scalars().first()
+        data.name = category_name
+        db_session.commit()
+        return redirect(f"/category/{category_id}")
+    return redirect("/login")
 
 @app.route("/category/<category_id>/delete", methods=["GET"])
 def delete_category(category_id):
-    return f"delete category - {category_id}"
+    if "user_id" in session:
+        init_db()
+        stmt = select(models.Category).filter_by(owner=session["user_id"], id=category_id)
+        category = db_session.execute(stmt).scalars().first()
+        if category:
+            db_session.delete(category)
+            db_session.commit()
+            return redirect("/category")
+        else:
+            return "Category does not exist / System category"
+    return redirect("/login")
 
 @app.route("/income", methods=["GET", "POST"])
 def get_all_income():
@@ -126,17 +179,50 @@ def get_all_income():
     else:
         return redirect("/login")
 
-@app.route("/income/<income_id>", methods=["GET"])
+@app.route("/income/<income_id>", methods=["GET", "POST"])
 def get_income(income_id):
-    return "<h1>stub for income_id</h1>"
+    if "user_id" in session:
+        init_db()
+        stmt = select(models.Transactions).filter_by(owner=session["user_id"], type=INCOME, id=income_id)
+        transaction = db_session.execute(stmt).scalars().first()
+        stmt_cat = select(models.Category).filter(or_(models.Category.owner == session["user_id"],models.Category.owner == 1))
+        categories = db_session.execute(stmt_cat).scalars().all()
+        transaction.category_id = transaction.category
+        return render_template("income_transaction.html", transaction=transaction, categories=categories)
+    return redirect("/login")
 
-@app.route("/income/<income_id>/edit", methods=["GET"])
+@app.route("/income/<income_id>/edit", methods=["POST"])
 def edit_income(income_id):
-    return f"edit income - {income_id}"
+    if "user_id" in session:
+        init_db()
+        transaction_description = request.form["description"]
+        transaction_category = int(request.form["category"])
+        transaction_amount = float(request.form["amount"])
+        raw_datetime = request.form["datetime"]
+        transaction_datetime = datetime.strptime(raw_datetime, "%Y-%m-%dT%H:%M")
+        stmt = select(models.Transactions).filter_by(owner=session["user_id"], type=INCOME, id=income_id)
+        data = db_session.execute(stmt).scalars().first()
+        data.description = transaction_description
+        data.category = transaction_category
+        data.amount = transaction_amount
+        data.datetime = transaction_datetime
+        db_session.commit()
+        return redirect("/income")
+    return redirect("/login")
 
 @app.route("/income/<income_id>/delete", methods=["GET"])
 def delete_income(income_id):
-    return f"delete income - {income_id}"
+    if "user_id" in session:
+        init_db()
+        stmt = select(models.Transactions).filter_by(owner=session["user_id"], type=INCOME, id=income_id)
+        transaction = db_session.execute(stmt).scalars().first()
+        if transaction:
+            db_session.delete(transaction)
+            db_session.commit()
+            return redirect("/income")
+        else:
+            return "Transaction does not exist"
+    return redirect("/login")
 
 
 @app.route("/expense", methods=["GET", "POST"])
@@ -183,15 +269,49 @@ def get_all_expenses():
 
 @app.route("/expense/<expense_id>", methods=["GET"])
 def get_expense(expense_id):
-    return "<h1>stub for expense_id</h1>"
+    if "user_id" in session:
+        init_db()
+        stmt = select(models.Transactions).filter_by(owner=session["user_id"], type=EXPENSE, id=expense_id)
+        transaction = db_session.execute(stmt).scalars().first()
+        stmt_cat = select(models.Category).filter(
+            or_(models.Category.owner == session["user_id"], models.Category.owner == 1))
+        categories = db_session.execute(stmt_cat).scalars().all()
+        transaction.category_id = transaction.category
+        return render_template("expense_transaction.html", transaction=transaction, categories=categories)
+    return redirect("/login")
 
-@app.route("/expense/<expense_id>/edit", methods=["GET"])
+@app.route("/expense/<expense_id>/edit", methods=["POST"])
 def edit_expense(expense_id):
-    return f"edit expense - {expense_id}"
+    if "user_id" in session:
+        init_db()
+        transaction_description = request.form["description"]
+        transaction_category = int(request.form["category"])
+        transaction_amount = float(request.form["amount"])
+        raw_datetime = request.form["datetime"]
+        transaction_datetime = datetime.strptime(raw_datetime, "%Y-%m-%dT%H:%M")
+        stmt = select(models.Transactions).filter_by(owner=session["user_id"], type=EXPENSE, id=expense_id)
+        data = db_session.execute(stmt).scalars().first()
+        data.description = transaction_description
+        data.category = transaction_category
+        data.amount = transaction_amount
+        data.datetime = transaction_datetime
+        db_session.commit()
+        return redirect("/expense")
+    return redirect("/login")
 
 @app.route("/expense/<expense_id>/delete", methods=["GET"])
 def delete_expense(expense_id):
-    return f"delete expense - {expense_id}"
+    if "user_id" in session:
+        init_db()
+        stmt = select(models.Transactions).filter_by(owner=session["user_id"], type=EXPENSE, id=expense_id)
+        transaction = db_session.execute(stmt).scalars().first()
+        if transaction:
+            db_session.delete(transaction)
+            db_session.commit()
+            return redirect("/expense")
+        else:
+            return "Transaction does not exist"
+    return redirect("/login")
 
 
 
